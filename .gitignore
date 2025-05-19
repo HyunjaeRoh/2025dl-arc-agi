@@ -2,3 +2,5 @@
 /json2png.py
 /dataset_visualization/
 /.idea/
+/skeleton/__pycache__/
+/skeleton/arc/__pycache__/
