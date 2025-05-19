@@ -2,9 +2,9 @@
 rm -rf /workspace/evaluate/*
 
 # emulate submission process
-cp -r /home/student/workspace/arc /workspace/evaluate
-cp -r /home/student/workspace/artifacts /workspace/evaluate
-cp /home/student/workspace/setup.sh /workspace/evaluate
+cp -r /home/student/workspace/HyunjaeRoh/skeleton/arc /workspace/evaluate
+cp -r /home/student/workspace/HyunjaeRoh/skeleton/artifacts /workspace/evaluate
+cp /home/student/workspace/HyunjaeRoh/skeleton/setup.sh /workspace/evaluate
 
 cd /workspace/evaluate
 source /workspace/evaluate/setup.sh
