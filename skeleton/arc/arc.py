@@ -141,59 +141,45 @@ class ARCSolver:
         }
 
     def train(self, training_data_path="/workspace/dataset", output_dir: str = "artifacts/arc_solver_finetuned"):
+        num_task_files_to_load = 10
+
+        ## 1. prepare dataset
         processed_data = []
 
-        task_files = [os.path.join(training_data_path, f) for f in os.listdir(training_data_path)]
+        task_file_names = [f for f in os.listdir(training_data_path)]
+        task_file_names = task_file_names[:num_task_files_to_load]
 
-        task_files = task_files[:10] # 디버깅용: 파일 수 제한 (원본 코드에서 가져옴)
+        print(f"학습을 위해 {len(task_file_names)}개의 ARC 작업 파일을 로드하여 처리합니다...")
 
-        print(f"학습을 위해 {len(task_files)}개의 ARC 작업을 로드하고 처리합니다...")
-        for task_file_path in tqdm(task_files, desc="작업 처리 중"):
-            try:
-                with open(task_file_path, 'r') as f:
-                    # loaded_task_data는 이제 [{"input": ..., "output": ...}, ...] 형태의 리스트
-                    loaded_task_data_list = json.load(f)
-            except Exception as e:
-                print(f"{task_file_path} 건너뛰기: JSON 로드 오류 - {e}")
-                continue
+        ## 1-2. read each task (read each json file)
+        for task_file_name in tqdm(task_file_names, desc="loop for each task"):
+            print(f"Processing task: {task_file_name}")
 
-            if not isinstance(loaded_task_data_list, list) or not loaded_task_data_list:
-                print(f"{task_file_path} 건너뛰기: 파일 내용이 유효한 리스트가 아닙니다.")
-                continue
+            task_file_path = os.path.join(training_data_path, task_file_name)
+            with open(task_file_path, "r") as f:
+                loaded_task_data_list = json.load(f)
 
-            # 데이터 처리 전략: 리스트의 마지막 요소를 test로, 나머지를 train 컨텍스트로 사용
-            if len(loaded_task_data_list) >= 1:  # 최소 하나의 입출력 쌍이 있어야 함
-                if len(loaded_task_data_list) >= 2:
-                    train_examples_for_prompt = loaded_task_data_list[:-1]
-                    current_test_pair = loaded_task_data_list[-1]
-                else:  # 쌍이 하나만 있는 경우, 학습 예제 없이 이것을 test로 사용
-                    train_examples_for_prompt = []
-                    current_test_pair = loaded_task_data_list[0]
+            # 1-3. parse each data and generate data for processing
+            num_pairs = len(loaded_task_data_list) // 4
+            for i in range(num_pairs):
+                train_examples_for_prompt = loaded_task_data_list[i * 4 : (i + 1) * 4 - 1]
+                test_example = loaded_task_data_list[(i + 1) * 4 - 1]
 
-                # current_test_pair가 딕셔너리이고 'input', 'output' 키를 가지는지 확인
-                if not isinstance(current_test_pair, dict) or \
-                        'input' not in current_test_pair or \
-                        'output' not in current_test_pair:
-                    print(f"{task_file_path} 건너뛰기: 마지막 쌍의 형식이 올바르지 않습니다 (input/output 키 부재).")
-                    continue
-
-                # format_prompt가 기대하는 형태로 datapoint 구성
-                datapoint_for_format = {
+                datapoint = {
                     "train": train_examples_for_prompt,
-                    "test": [current_test_pair]  # 'test'는 리스트여야 함
+                    "test": [test_example]
                 }
 
-                try:
-                    prompt_info = self.format_prompt(datapoint_for_format)
-                except ValueError as ve:
-                    print(f"{task_file_path} 건너뛰기 (프롬프트 생성 오류): {ve}")
-                    continue
-
-                prompt_tokens = prompt_info['input_ids']
-                target_grid = current_test_pair['output']  # 실제 학습 목표
+                prompt_info = self.format_prompt(datapoint)
+                prompt_tokens = prompt_info["input_ids"]
+                target_grid = test_example["output"]
                 target_tokens = self.format_grid(target_grid)
 
-                eot_token_id = self.tokenizer.encode("<|eot_id|>", add_special_tokens=False)[0]
+                try:
+                    eot_token_id = self.tokenizer.encode("<|eot_id|>", add_special_tokens=False)[0]
+                except Exception as e:
+                    print(f"Warning: Could not encode <|eot_id|>: {e}. Using general eos_token_id.")
+                    eot_token_id = self.tokenizer.eos_token_id
 
                 full_tokens = prompt_tokens + target_tokens + [eot_token_id]
                 labels = [-100] * len(prompt_tokens) + target_tokens + [eot_token_id]
@@ -202,13 +188,8 @@ class ARCSolver:
                     "input_ids": torch.tensor(full_tokens, dtype=torch.long),
                     "labels": torch.tensor(labels, dtype=torch.long),
                 })
-            else:
-                print(f"{task_file_path} 건너뛰기: 파일에 유효한 입출력 쌍이 없습니다.")
-                continue
-        # --- 이하 PEFT 설정, TrainingArguments, SFTTrainer 초기화 및 학습 코드는 이전과 동일하게 유지 ---
-        if not processed_data:
-            print("학습을 위해 성공적으로 처리된 데이터가 없습니다. 종료합니다.")
-            return
+
+        ## 2. PEFT setting
 
         dataset = Dataset.from_list(processed_data)
 
