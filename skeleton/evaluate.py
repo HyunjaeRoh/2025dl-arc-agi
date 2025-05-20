@@ -67,7 +67,7 @@ def main():
     from arc import ARCSolver
 
     solver = ARCSolver(token=token)
-    solver.prepare_evaluation()
+    solver.prepare_evaluation("artifacts/checkpoint-final")
 
     set_seed(1234567890)
 

@@ -37,7 +37,6 @@ def main():
         test_input_grid = eval_data["test"][0]["input"]
         ground_truth_output_grid = eval_data["test"][0]["output"]
 
-        # 학습 예제 중 첫 번째 것만 간단히 프린트 (선택 사항)
         if train_examples:
             rich_print(f"[bold magenta]Train Examples ({len(train_examples)} pairs):[/bold magenta]")
             for idx, train_ex in enumerate(train_examples):
