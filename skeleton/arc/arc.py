@@ -142,6 +142,7 @@ class ARCSolver:
 
     def train(self, training_data_path="/workspace/dataset", output_dir: str = "artifacts/arc_solver_finetuned"):
         num_task_files_to_load = 10
+        num_max_train_for_each_task = 10
 
         ## 1. prepare dataset
         processed_data = []
@@ -160,7 +161,7 @@ class ARCSolver:
                 loaded_task_data_list = json.load(f)
 
             # 1-3. parse each data and generate data for processing
-            num_pairs = len(loaded_task_data_list) // 4
+            num_pairs = min (len(loaded_task_data_list) // 4, num_max_train_for_each_task)
             for i in range(num_pairs):
                 train_examples_for_prompt = loaded_task_data_list[i * 4 : (i + 1) * 4 - 1]
                 test_example = loaded_task_data_list[(i + 1) * 4 - 1]
@@ -205,16 +206,6 @@ class ARCSolver:
         self.model = prepare_model_for_kbit_training(self.model, use_gradient_checkpointing=True)
         self.model = get_peft_model(self.model, peft_config)
         self.model.print_trainable_parameters()
-
-        max_len_data = 0
-        if processed_data:  # processed_data가 비어있지 않은 경우에만 길이 계산
-            for item in processed_data:
-                item_len = len(item['input_ids'])
-                if item_len > max_len_data:
-                    max_len_data = item_len
-
-        effective_max_seq_length = min(max_len_data, 4096) if max_len_data > 0 else 512  # 데이터가 없을 경우 기본값
-        print(f"데이터에서 찾은 최대 시퀀스 길이: {max_len_data}. 학습에 사용할 길이: {effective_max_seq_length}")
 
         try:
             compute_dtype = self.model.config.quantization_config.bnb_4bit_compute_dtype
