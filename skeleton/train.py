@@ -34,7 +34,7 @@ def main():
 
     print(f"Initializing ARCSolver with token: {'Provided' if token else 'Not provided'}")
     try:
-        solver = ARCSolver(token=token)
+        solver = ARCSolver(token=token, is_training=True)
     except Exception as e:
         print(f"Error initializing ARCSolver: {e}")
         sys.exit(1)
