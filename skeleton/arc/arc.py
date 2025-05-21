@@ -3,7 +3,7 @@ import torch
 from typing import List
 import numpy as np
 
-from .utils import system_prompt, user_message_template1, user_message_template2, user_message_template3
+from .utils import message_templates
 from transformers import BitsAndBytesConfig, AutoModelForCausalLM, AutoTokenizer
 
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
@@ -111,36 +111,109 @@ class ARCSolver:
             datapoint (dict): contains training data, test input
         
         Returns:
-            prompt (dict): dictionary that contains input ids and additional informations
+            prompt (dict): dictionary that contains input ids and additional information
         """
-
+        # Get input data for prompt
         training_data = datapoint['train']
         input_test_data = datapoint['test'][0]['input']
 
-        sys = self.tokenizer.encode(
-            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>" + "\n" + system_prompt,
-            add_special_tokens=False)
-        user = self.tokenizer.encode("<|start_header_id|>user<|end_header_id|>" + "\n" + user_message_template1 + "\n",
-                                     add_special_tokens=False)
-        inp_desc = self.tokenizer.encode("input:\n", add_special_tokens=False)
-        out_desc = self.tokenizer.encode("output:\n", add_special_tokens=False)
-        for ex in training_data:
-            inp = ex['input']
-            out = ex['output']
-            inp = self.format_grid(inp)
-            out = self.format_grid(out)
+        # Define prompt templates
+        system_prompt = message_templates["system_prompt"]
 
-            user += inp_desc
-            user += inp
-            user += out_desc
-            user += out
+        user_message_template1 = message_templates["user_message_template1"]
+        user_message_template2 = message_templates["user_message_template2"]
+        user_message_template3 = message_templates["user_message_template3"]
+
+        # Tokenize system message
+        sys = self.tokenizer.encode(
+            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>" + "\n" + system_prompt + "<|eot_id|>",
+            add_special_tokens=False)
+
+        # Tokenize user message
+        user = self.tokenizer.encode(
+            "<|start_header_id|>user<|end_header_id|>" + "\n" + user_message_template1 + "\n",
+            add_special_tokens=False)
+        input_desc = self.tokenizer.encode("input:\n", add_special_tokens=False)
+        output_desc = self.tokenizer.encode("output:\n", add_special_tokens=False)
+        for example in training_data:
+            input_listform = example['input']
+            output_listform = example['output']
+            input_tokenized = self.format_grid(input_listform)
+            output_tokenized = self.format_grid(output_listform)
+
+            user += input_desc
+            user += input_tokenized
+            user += output_desc
+            user += output_tokenized
+            user += self.tokenizer.encode("\n", add_special_tokens=False)
 
         user += self.tokenizer.encode("\n" + user_message_template2 + "\n", add_special_tokens=False)
 
-        user += inp_desc
+        user += input_desc
         user += self.format_grid(input_test_data)
         user += self.tokenizer.encode("\n" + user_message_template3, add_special_tokens=False)
 
+        # Form all
+        messages = sys + user
+        assis = self.tokenizer.encode("<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
+                                      add_special_tokens=False)
+        messages += assis
+
+        return {
+            "input_ids": messages,
+            "input": input_test_data,
+            "train": training_data
+        }
+
+    def format_prompt_for_rule_explanation(self, datapoint):
+        """
+        Args:
+            datapoint (dict): contains training data, test input
+
+        Returns:
+            prompt (dict): dictionary that contains input ids and additional information
+        """
+        # Get input data for prompt
+        training_data = datapoint['train']
+        input_test_data = datapoint['test'][0]['input']
+
+        # Define prompt templates
+        system_prompt = message_templates["system_prompt"]
+
+        user_message_template1 = message_templates["user_message_template1"]
+        user_message_template2 = message_templates["user_message_template2"]
+        user_message_template3 = message_templates["user_message_template4"]
+
+        # Tokenize system message
+        sys = self.tokenizer.encode(
+            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>" + "\n" + system_prompt + "<|eot_id|>",
+            add_special_tokens=False)
+
+        # Tokenize user message
+        user = self.tokenizer.encode(
+            "<|start_header_id|>user<|end_header_id|>" + "\n" + user_message_template1 + "\n",
+            add_special_tokens=False)
+        input_desc = self.tokenizer.encode("input:\n", add_special_tokens=False)
+        output_desc = self.tokenizer.encode("output:\n", add_special_tokens=False)
+        for example in training_data:
+            input_listform = example['input']
+            output_listform = example['output']
+            input_tokenized = self.format_grid(input_listform)
+            output_tokenized = self.format_grid(output_listform)
+
+            user += input_desc
+            user += input_tokenized
+            user += output_desc
+            user += output_tokenized
+            user += self.tokenizer.encode("\n", add_special_tokens=False)
+
+        user += self.tokenizer.encode("\n" + user_message_template2 + "\n", add_special_tokens=False)
+
+        user += input_desc
+        user += self.format_grid(input_test_data)
+        user += self.tokenizer.encode("\n" + user_message_template3, add_special_tokens=False)
+
+        # Form all
         messages = sys + user
         assis = self.tokenizer.encode("<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
                                       add_special_tokens=False)
@@ -265,7 +338,7 @@ class ARCSolver:
         print(f"학습 완료. 어댑터가 {final_adapter_path}에 저장되었습니다.")
         print(f"이제 `prepare_evaluation(adapter_path='{final_adapter_path}')`를 사용하여 이 어댑터를 로드할 수 있습니다.")
 
-    def predict(self, examples, questions_input):
+    def predict_grid(self, examples, questions_input):
         """
         A single example of test data is given.
         You should predict 2D grid (List[List[int]] or np.ndarray)
@@ -285,7 +358,7 @@ class ARCSolver:
                     }
                 ]
             questions_input (List[List[int]]): A 2d grid,
-                which is a input for a given question
+                which is an input for a given question
         Returns:
             output (List[List[int]]): A 2d grid,
                 which is the output of given input question.
@@ -335,6 +408,9 @@ class ARCSolver:
             grid = np.random.randint(0, 10, (x, y))
 
         return grid
+
+    def predict_rule(self, exampkes, questions_input):
+        ...
 
     def prepare_evaluation(self, adapter_path="artifacts/checkpoint-final"):
         """
