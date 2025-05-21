@@ -27,7 +27,7 @@ class ARCSolver:
             token (str): a huggingface token for restricted models such as llama3
             is_training (bool): mode of training (set use_cache option for model)
         """
-        # config_path = "artifacts/config/config.yml"
+        # config_path = "artifacts/config/config.yml" @@ TODO: search config_setting
         model_id = "meta-llama/Llama-3.2-3B-Instruct"
 
         # Configure the BitsAndBytes settings for 4-bit quantization to reduce memory usage
@@ -51,19 +51,36 @@ class ARCSolver:
             token=token
         )
 
-        # Load tokenizer
+        # Load tokenizer associated with the pre-trained model
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
 
-        # Tokens for colors and '\n'
+        # Define token IDs for ARC grid and pixels (0-10) and row seperator
         self.pixel_ids = [
             self.tokenizer.encode(str(i), add_special_tokens=False)[0] for i in range(10)
         ]
         self.separator = self.tokenizer.encode('\n', add_special_tokens=False)[0]
 
         # Set device
-        #self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.device = self.model.device
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # self.device = self.model.device
 
+    def format_grid(self, grid: List[List[int]]):
+        """
+        Format 2D grid into LLM input tokens
+
+        Args:
+            grid (List[List[int]]): 2D grid
+
+        Returns:
+            ids (List[int]): Token list for LLM
+        """
+        ids = []
+
+        for row in grid:
+            for pixel in row:
+                ids.append(self.pixel_ids[pixel])
+            ids.append(self.separator)
+        return ids
 
     def parse_grid(self, ids: List[int]):
         """
@@ -80,31 +97,13 @@ class ARCSolver:
         inv_map = {k: i for i, k in enumerate(self.pixel_ids)}
 
         for idx in ids:
-            if idx == self.sep:
+            if idx == self.separator:
                 if len(row) > 0:
                     grid.append(row.copy())
                     row.clear()
             else:
                 row.append(inv_map.get(idx, 0))
         return grid
-
-    def format_grid(self, grid: List[List[int]]):
-        """
-        Format 2D grid into LLM input tokens
-
-        Args:
-            grid (List[List[int]]): 2D grid
-
-        Returns:
-            ids (List[int]): Token list for LLM
-        """
-        ids = []
-
-        for row in grid:
-            for col in row:
-                ids.append(self.pixel_ids[col])
-            ids.append(self.sep)
-        return ids
 
     def format_prompt(self, datapoint):
         """
