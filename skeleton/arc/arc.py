@@ -21,12 +21,13 @@ class ARCSolver:
     You should implement a `Solver` class for the project.
     """
 
-    def __init__(self, token=None):
+    def __init__(self, token=None, is_training=False):
         """
         Args:
             token (str): a huggingface token for restricted models such as llama3
+            is_training (bool): mode of training (set use_cache option for model)
         """
-        config_path = "artifacts/config/config.yml"
+        # config_path = "artifacts/config/config.yml"
         model_id = "meta-llama/Llama-3.2-3B-Instruct"
 
         # Configure the BitsAndBytes settings for 4-bit quantization to reduce memory usage
@@ -36,24 +37,33 @@ class ARCSolver:
             bnb_4bit_quant_type="nf4",  # Specify the quantization type
             bnb_4bit_compute_dtype=torch.float16,  # Set the computation data type
         )
+
+        # Load pre-trained model
+        use_cache = False if is_training else True
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            trust_remote_code=True, # Allow the model to use custom code from the repository
-            quantization_config=bnb_config, # Apply the 4-bit quantization configuration
-            attn_implementation='sdpa', # Use scaled-dot product attention for better performance
-            torch_dtype=torch.float16, # Set the data type for the model
-            use_cache=False, # Disable caching to save memory
-            device_map='auto', # Automatically map the model to available devices (e.g., GPUs)
+            trust_remote_code=True,  # Allow the model to use custom code from the repository
+            quantization_config=bnb_config,  # Apply the 4-bit quantization configuration
+            attn_implementation='sdpa',  # Use scaled-dot product attention for better performance
+            torch_dtype=torch.float16,  # Set the data type for the model
+            use_cache=use_cache,  # at training, disable caching to save memory
+            device_map='auto',  # Automatically map the model to available devices (e.g., GPUs)
             token=token
         )
 
+        # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
 
+        # Tokens for colors and '\n'
         self.pixel_ids = [
             self.tokenizer.encode(str(i), add_special_tokens=False)[0] for i in range(10)
         ]
-        self.sep = self.tokenizer.encode("\n", add_special_tokens=False)[0]
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.separator = self.tokenizer.encode('\n', add_special_tokens=False)[0]
+
+        # Set device
+        #self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = self.model.device
+
 
     def parse_grid(self, ids: List[int]):
         """
@@ -68,7 +78,7 @@ class ARCSolver:
         grid = []
         row = []
         inv_map = {k: i for i, k in enumerate(self.pixel_ids)}
-        
+
         for idx in ids:
             if idx == self.sep:
                 if len(row) > 0:
@@ -108,8 +118,11 @@ class ARCSolver:
         training_data = datapoint['train']
         input_test_data = datapoint['test'][0]['input']
 
-        sys = self.tokenizer.encode("<|begin_of_text|><|start_header_id|>system<|end_header_id|>" + "\n" + system_prompt, add_special_tokens=False)
-        user = self.tokenizer.encode("<|start_header_id|>user<|end_header_id|>" + "\n" + user_message_template1 + "\n", add_special_tokens=False)
+        sys = self.tokenizer.encode(
+            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>" + "\n" + system_prompt,
+            add_special_tokens=False)
+        user = self.tokenizer.encode("<|start_header_id|>user<|end_header_id|>" + "\n" + user_message_template1 + "\n",
+                                     add_special_tokens=False)
         inp_desc = self.tokenizer.encode("input:\n", add_special_tokens=False)
         out_desc = self.tokenizer.encode("output:\n", add_special_tokens=False)
         for ex in training_data:
@@ -129,9 +142,9 @@ class ARCSolver:
         user += self.format_grid(input_test_data)
         user += self.tokenizer.encode("\n" + user_message_template3, add_special_tokens=False)
 
-
         messages = sys + user
-        assis = self.tokenizer.encode("<|eot_id|><|start_header_id|>assistant<|end_header_id|>", add_special_tokens=False)
+        assis = self.tokenizer.encode("<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
+                                      add_special_tokens=False)
         messages += assis
 
         return {
@@ -161,9 +174,9 @@ class ARCSolver:
                 loaded_task_data_list = json.load(f)
 
             # 1-3. parse each data and generate data for processing
-            num_pairs = min (len(loaded_task_data_list) // 4, num_max_train_for_each_task)
+            num_pairs = min(len(loaded_task_data_list) // 4, num_max_train_for_each_task)
             for i in range(num_pairs):
-                train_examples_for_prompt = loaded_task_data_list[i * 4 : (i + 1) * 4 - 1]
+                train_examples_for_prompt = loaded_task_data_list[i * 4: (i + 1) * 4 - 1]
                 test_example = loaded_task_data_list[(i + 1) * 4 - 1]
 
                 datapoint = {
@@ -235,11 +248,11 @@ class ARCSolver:
 
         trainer = SFTTrainer(
             model=self.model,
-            #tokenizer=self.tokenizer,
+            # tokenizer=self.tokenizer,
             args=training_args,
             train_dataset=dataset,
             peft_config=peft_config,
-            #max_seq_length=effective_max_seq_length,
+            # max_seq_length=effective_max_seq_length,
         )
 
         print("미세 조정을 시작합니다...")
@@ -318,13 +331,13 @@ class ARCSolver:
         try:
             grid = np.array(self.parse_grid(output))
             grid = grid[:x, :y]
-            
+
         except Exception as e:
             grid = np.random.randint(0, 10, (x, y))
 
         return grid
 
-    def prepare_evaluation(self, adapter_path = "artifacts/checkpoint-final"):
+    def prepare_evaluation(self, adapter_path="artifacts/checkpoint-final"):
         """
         Load pretrained weight, make model eval mode, etc.
         """
@@ -334,7 +347,3 @@ class ARCSolver:
 
 if __name__ == "__main__":
     solver = ARCSolver()
-
-
-
-
