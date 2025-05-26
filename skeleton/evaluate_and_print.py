@@ -52,7 +52,7 @@ def main():
         predicted_output_grid = solver.predict(
             train_examples,
             test_input_grid,
-        )
+        ) ##
 
         rich_print("[bold green]Predicted Output:[/bold green]")
         render_grid(predicted_output_grid)
