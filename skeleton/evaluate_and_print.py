@@ -14,7 +14,7 @@ def main():
     token = os.environ.get("HF_TOKEN", None)
     from arc import ARCSolver
 
-    solver = ARCSolver(token=token, training=False)
+    solver = ARCSolver(token=token, is_training=False)
     solver.prepare_evaluation()
 
     set_seed(1234567890)
