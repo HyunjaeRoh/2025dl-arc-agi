@@ -54,8 +54,8 @@ class ARCSolver:
         # Load tokenizer associated with the pre-trained model
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
 
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        # if self.tokenizer.pad_token is None:
+        #     self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # Define token IDs for ARC grid and pixels (0-10) and row seperator
         self.pixel_ids = [
