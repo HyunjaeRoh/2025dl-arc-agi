@@ -124,9 +124,9 @@ def load_data_selective(base_dir, task_list, window, rng, max_len=1000):
 
 def main():
     token = os.environ.get("HF_TOKEN", None)
-    from arc import ARCSolver
+    from arc.arc2 import ARCSolver2
 
-    solver = ARCSolver(token=token, is_training=False)
+    solver = ARCSolver2(token=token, is_training=False)
     solver.prepare_evaluation()
 
     set_seed(1234567890)
