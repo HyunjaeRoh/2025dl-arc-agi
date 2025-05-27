@@ -291,7 +291,7 @@ class ARCSolver:
         print(f"학습 완료. 어댑터가 {final_adapter_path}에 저장되었습니다.")
         print(f"이제 `prepare_evaluation(adapter_path='{final_adapter_path}')`를 사용하여 이 어댑터를 로드할 수 있습니다.")
 
-    def predict(self, examples, test_input, result_type="rule"):
+    def predict(self, examples, test_input, result_type="grid"):
         """
         A single example of test data is given.
         You should predict 2D grid (List[List[int]] or np.ndarray)
