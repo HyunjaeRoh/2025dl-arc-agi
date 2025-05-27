@@ -156,7 +156,7 @@ class ARCSolver:
 
         if result_type == "grid":
             user_message_template3 = message_templates["user_message_template3"]
-        if result_type == "rule_explanation":
+        elif result_type == "rule_explanation":
             user_message_template3 = message_templates["user_message_template4"]
         else:
             raise Exception("result_type must be 'grid' or 'rule_explanation'")
