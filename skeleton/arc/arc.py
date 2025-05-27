@@ -54,6 +54,9 @@ class ARCSolver:
         # Load tokenizer associated with the pre-trained model
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
 
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
         # Define token IDs for ARC grid and pixels (0-10) and row seperator
         self.pixel_ids = [
             self.tokenizer.encode(str(i), add_special_tokens=False)[0] for i in range(10)
@@ -117,7 +120,7 @@ class ARCSolver:
                     prompt (dict): dictionary that contains input ids and additional information
                 """
         # Get input data for prompt
-        examples = datapoint['train']
+        train_data = datapoint['train']
         test_input = datapoint['test'][0]['input']
 
         # Define prompt templates
@@ -137,7 +140,7 @@ class ARCSolver:
             add_special_tokens=False)
         input_desc = self.tokenizer.encode("input:\n", add_special_tokens=False)
         output_desc = self.tokenizer.encode("output:\n", add_special_tokens=False)
-        for example in examples:
+        for example in train_data:
             input_listform = example['input']
             output_listform = example['output']
             input_tokenized = self.format_grid(input_listform)
@@ -172,7 +175,7 @@ class ARCSolver:
         return {
             "message_tokens": messages,
             "input": test_input,
-            "examples": examples
+            "train": train_data
         }
 
     def train(self, training_data_path="/workspace/dataset", output_dir: str = "artifacts/arc_solver_finetuned"):
@@ -331,8 +334,10 @@ class ARCSolver:
             max_new_tokens=150,
         )
 
+        attention_mask = torch.ones_like(input_ids).to(self.device)
         output = self.model.generate(
             input_ids=input_ids,
+            attention_mask=attention_mask,
             generation_config=config,
         ).squeeze().cpu()
         N_prompt = input_ids.numel()
