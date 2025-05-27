@@ -54,6 +54,21 @@ class ARCSolver2:
         # Load tokenizer associated with the pre-trained model
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
 
+        gemma_chat_template = (
+            "{{ bos_token }}"  # 항상 시퀀스 시작 토큰 추가
+            "{% for message in messages %}"
+            "{% if message['role'] == 'user' %}"
+            "{{ '<start_of_turn>user\n' + message['content'] | trim + '<end_of_turn>\n' }}"
+            "{% elif message['role'] == 'model' %}"
+            "{{ '<start_of_turn>model\n' + message['content'] | trim + '<end_of_turn>\n' }}"
+            "{% endif %}"
+            "{% endfor %}"
+            "{% if add_generation_prompt %}"  # 추론 시 모델 턴 시작 추가
+            "{{ '<start_of_turn>model\n' }}"
+            "{% endif %}"
+        )
+        self.tokenizer.chat_template = gemma_chat_template
+
         # Define token IDs for ARC grid and pixels (0-10) and row seperator
         self.pixel_ids = [
             self.tokenizer.encode(str(i), add_special_tokens=False)[0] for i in range(10)
