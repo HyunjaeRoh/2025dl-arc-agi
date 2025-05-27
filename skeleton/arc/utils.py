@@ -1,3 +1,8 @@
+import json
+import os
+from typing import List, Dict, Generator, Optional
+import random
+
 message_templates = {
     "system_prompt": \
         '''You are a puzzle solving wizard. You are given a puzzle from the abstraction and reasoning corpus''',
@@ -20,3 +25,37 @@ message_templates = {
         Considering the examples, the test input, and potentially the predicted output grid provided below, please describe the transformation rule you observed in a single, concise English sentence.
         Rule: '''
 }
+
+def load_data_from_a_task(
+        all_examples,
+        num_examples,
+        num_test,
+):
+    datapoints = []
+    window_size = num_examples + 1
+
+    shuffled_examples = list(all_examples)
+    random.shuffle(shuffled_examples)
+
+    if len(shuffled_examples) < window_size:
+        return []
+
+    data_iter = (
+        shuffled_examples[i * window_size : (i+1) * window_size]
+        for i in range(len(shuffled_examples) // window_size)
+    )
+
+    for cnt, window in enumerate(data_iter):
+        if cnt >= num_test:
+            break
+
+        train_part = window[:num_examples]
+        test_part = window[num_examples]
+
+        datapoint = {
+            'examples': train_part,
+            'test': test_part,
+        }
+
+
+    return None

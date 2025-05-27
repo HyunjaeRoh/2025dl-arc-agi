@@ -3,7 +3,7 @@ import torch
 from typing import List
 import numpy as np
 
-from .utils import message_templates
+from .utils import message_templates, build_datapoint
 from transformers import BitsAndBytesConfig, AutoModelForCausalLM, AutoTokenizer
 
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
