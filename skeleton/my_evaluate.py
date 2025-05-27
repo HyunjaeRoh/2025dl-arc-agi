@@ -141,7 +141,7 @@ def main():
     df = __load_data(data_path)
 
     #eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
-    eval_dataset = Dataset.from_pandas(df).select(range(N_data))
+    eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
 
     #eval_dataset =
 
