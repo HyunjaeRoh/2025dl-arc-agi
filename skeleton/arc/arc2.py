@@ -367,9 +367,9 @@ class ARCSolver2:
         """
         Load pretrained weight, make model eval mode, etc.
         """
-        self.model.load_adapter(adapter_path)
+        #self.model.load_adapter(adapter_path)
         self.model.eval()
 
 
 if __name__ == "__main__":
-    solver = ARCSolver()
+    solver = ARCSolver2()
