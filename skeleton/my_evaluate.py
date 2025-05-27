@@ -153,7 +153,7 @@ def main():
 
         if train_examples:
             rich_print(f"[bold magenta]Train Examples ({len(train_examples)} pairs):[/bold magenta]")
-            for idx, train_ex in enumerate(train_examples):
+            for idx, train_ex in enumerate(train_examples[:10]):
                 rich_print(f"[bold magenta]Train Example {idx} (Input):[/bold magenta]")
                 render_grid(train_ex['input'])
                 rich_print(f"[bold magenta]Train Example {idx} (Output):[/bold magenta]")
