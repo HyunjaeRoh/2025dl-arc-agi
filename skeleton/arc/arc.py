@@ -202,7 +202,7 @@ class ARCSolver:
                 test_example = loaded_task_data_list[(i + 1) * 4 - 1]
 
                 datapoint = {
-                    "train": train_examples_for_prompt,
+                    "examples": train_examples_for_prompt,
                     "test": [test_example]
                 }
 

@@ -27,7 +27,7 @@ def main():
 
     from datasets import Dataset
     #eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
-    eval_dataset = Dataset.from_pandas(df).shuffle(0).select(range(N_data))
+    eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
 
     for i, eval_data in enumerate(tqdm(eval_dataset, desc="Evaluating Tasks")):  # tqdm에 desc 추가 및 인덱스 사용
         task_name = eval_data.get('task', f'Task_{i + 1}')  # 태스크 이름 가져오기 (없으면 기본값)
