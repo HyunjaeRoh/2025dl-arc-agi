@@ -117,7 +117,7 @@ class ARCSolver:
                     prompt (dict): dictionary that contains input ids and additional information
                 """
         # Get input data for prompt
-        examples = datapoint['examples']
+        examples = datapoint['train']
         test_input = datapoint['test'][0]['input']
 
         # Define prompt templates
