@@ -207,7 +207,7 @@ class ARCSolver:
                 }
 
                 prompt_info = self.format_prompt(datapoint)
-                prompt_tokens = prompt_info["input_ids"]
+                prompt_tokens = prompt_info["message_tokens"]
                 target_grid = test_example["output"]
                 target_tokens = self.format_grid(target_grid)
 
