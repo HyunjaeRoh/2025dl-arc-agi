@@ -79,6 +79,7 @@ def main():
 
     from datasets import Dataset
     eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
+
     for eval_data in tqdm(eval_dataset):
         preds = solver.predict(
             eval_data["train"],
@@ -86,7 +87,7 @@ def main():
         )
         s = check_match(preds, eval_data["test"][0]["output"])
         scores.append(s)
-    
+
     score = np.array(scores).mean() * 100
     print(f"Evaluation scores: {score:.2f}", flush=True)
     print("Evaluation Success")

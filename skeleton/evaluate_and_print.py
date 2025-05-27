@@ -29,6 +29,8 @@ def main():
     #eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
     eval_dataset = Dataset.from_pandas(df).select(range(N_data))
 
+    eval_dataset =
+
     for i, eval_data in enumerate(tqdm(eval_dataset, desc="Evaluating Tasks")):  # tqdm에 desc 추가 및 인덱스 사용
         task_name = eval_data.get('task', f'Task_{i + 1}')  # 태스크 이름 가져오기 (없으면 기본값)
         rich_print(f"\n[bold cyan]----- Evaluating Task: {task_name} ----- [/bold cyan]")
@@ -53,6 +55,13 @@ def main():
             train_examples,
             test_input_grid,
         ) ##
+
+        predicted_rule = solver.predict(
+            train_examples,
+            test_input_grid,
+            result_type='rule'
+        )
+        rich_print(f"@@ predicted_rule: {predicted_rule} @@@")
 
         rich_print("[bold green]Predicted Output:[/bold green]")
         render_grid(predicted_output_grid)

@@ -159,7 +159,7 @@ class ARCSolver:
 
         if result_type == "grid":
             user_message_template3 = message_templates["user_message_template3"]
-        elif result_type == "rule_explanation":
+        elif result_type == "rule":
             user_message_template3 = message_templates["user_message_template4"]
         else:
             raise Exception("result_type must be 'grid' or 'rule_explanation'")
@@ -291,7 +291,7 @@ class ARCSolver:
         print(f"학습 완료. 어댑터가 {final_adapter_path}에 저장되었습니다.")
         print(f"이제 `prepare_evaluation(adapter_path='{final_adapter_path}')`를 사용하여 이 어댑터를 로드할 수 있습니다.")
 
-    def predict(self, examples, test_input):
+    def predict(self, examples, test_input, result_type="rule"):
         """
         A single example of test data is given.
         You should predict 2D grid (List[List[int]] or np.ndarray)
@@ -325,7 +325,7 @@ class ARCSolver:
             ]
         }
 
-        prompt = self.format_prompt(datapoint)
+        prompt = self.format_prompt(datapoint, result_type=result_type)
         input_ids = torch.tensor(prompt["message_tokens"], dtype=torch.long).to(self.device).view(1, -1)
 
         config = GenerationConfig(
@@ -341,8 +341,11 @@ class ARCSolver:
             generation_config=config,
         ).squeeze().cpu()
         N_prompt = input_ids.numel()
+        output_tokens = output[N_prompt:].tolist()
 
-        output = output[N_prompt:].tolist()
+        if result_type == "rule":
+            explanation = self.tokenizer.decode(output_tokens, skip_special_tokens=True)
+            return explanation.strip()
         train_input = np.array(prompt['train'][0]['input'])
         train_output = np.array(prompt['train'][0]['output'])
         test_input = np.array(prompt['input'])
@@ -356,7 +359,7 @@ class ARCSolver:
             y = (train_output.shape[1] // train_input.shape[1]) * test_input.shape[1]
 
         try:
-            grid = np.array(self.parse_grid(output))
+            grid = np.array(self.parse_grid(output_tokens))
             grid = grid[:x, :y]
 
         except Exception as e:
