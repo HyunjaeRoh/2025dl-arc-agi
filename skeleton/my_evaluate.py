@@ -8,6 +8,7 @@ import json
 from utils import render_grid
 from rich import print as rich_print
 from datasets import Dataset
+from evaluate import load_data as __load_data
 
 def load_data_selective(base_dir, task_list, window, rng, max_len=1000):
     """
@@ -136,7 +137,8 @@ def main():
 
     task_list = [1]
 
-    df = load_data_selective(data_path, task_list, window=100, rng=rng, max_len=10)
+    #df = load_data_selective(data_path, task_list, window=100, rng=rng, max_len=10)
+    df = __load_data(data_path)
 
     #eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
     eval_dataset = Dataset.from_pandas(df).select(range(N_data))

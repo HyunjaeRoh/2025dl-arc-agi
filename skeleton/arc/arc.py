@@ -28,7 +28,7 @@ class ARCSolver:
             is_training (bool): mode of training (set use_cache option for model)
         """
         # config_path = "artifacts/config/config.yml" @@ TODO: search config_setting
-        model_id = "meta-llama/Llama-3.2-3B-Instruct"
+        model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
         # Configure the BitsAndBytes settings for 4-bit quantization to reduce memory usage
         bnb_config = BitsAndBytesConfig(
