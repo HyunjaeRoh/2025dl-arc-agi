@@ -18,7 +18,7 @@ message_templates = {
 
     "user_message_template3": \
         '''----------------------------------------
-        What is the output grid? Only provide the output grid in the form as in the example input and output pairs. Do not provide any additional information:''',
+        The rule is Detect specific regions bounded or patterned by a consistent “border” color, and replace the interior or certain structured positions within that region with a new color (4 in all cases). What is the output grid? Only provide the output grid in the form as in the example input and output pairs. Do not provide any additional information:''',
 
     "user_message_template4": \
         '''----------------------------------------
