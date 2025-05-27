@@ -134,7 +134,7 @@ def main():
     data_path = "../dataset"
     N_data = 10
 
-    task_list = [0]
+    task_list = [1]
 
     df = load_data_selective(data_path, task_list, window=100, rng=rng, max_len=10)
 
