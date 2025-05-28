@@ -49,8 +49,8 @@ class ARCSolver:
             model_id,
             trust_remote_code=True,  # Allow the model to use custom code from the repository
             quantization_config=bnb_config,  # Apply the 4-bit quantization configuration
-            attn_implementation='sdpa',  # Use scaled-dot product attention for better performance
-            #attn_implementation='flash_attention_2',
+            #attn_implementation='sdpa',  # Use scaled-dot product attention for better performance
+            attn_implementation='flash_attention_2',
             torch_dtype=torch.float16,  # Set the data type for the model
             use_cache=use_cache,  # at training, disable caching to save memory
             device_map='auto',  # Automatically map the model to available devices (e.g., GPUs)
