@@ -19,14 +19,6 @@ def main():
         default="artifacts/arc_solver_finetuned_from_script",
         help="Directory to save the fine-tuned model adapter and training artifacts."
     )
-    parser.add_argument(
-        "--hf_token",
-        type=str,
-        default=None,
-        help="Hugging Face token for restricted models like Llama 3. Can also be set via HUGGING_FACE_HUB_TOKEN environment variable."
-    )
-    # 추가적인 학습 파라미터 (예: epochs, learning_rate 등)를 여기서 받을 수 있습니다.
-    # 이 경우 ARCSolver.train 메서드도 해당 파라미터를 받도록 수정해야 합니다.
 
     args = parser.parse_args()
 

@@ -2,5 +2,6 @@ torch
 torchvision
 transformers
 datasets
+peft
 trl
 bitsandbytes

@@ -71,7 +71,8 @@ def main():
 
     set_seed(1234567890)
 
-    data_path = "/workspace/dataset"
+    #@@@ data_path = "/workspace/dataset"
+    data_path = "../dataset" # @@@@
     N_data = 10
 
     scores = []

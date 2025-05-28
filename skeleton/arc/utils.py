@@ -1,61 +1,46 @@
-import json
-import os
-from typing import List, Dict, Generator, Optional
-import random
+from pathlib import Path
 
-message_templates = {
-    "system_prompt": \
-        '''You are a puzzle solving wizard. You are given a puzzle from the abstraction and reasoning corpus''',
+import numpy as np
 
-    "user_message_template1": \
-        '''Here are the example input and output pairs from which you should learn the underlying rule to later predict the output for the given test input:
-        ----------------------------------------''',
+from rich.console import Console
+from rich.text import Text
+from typing import List
 
-    "user_message_template2": \
-        '''----------------------------------------
-        Now, solve the following puzzle based on its input grid by applying the rules you have learned from the training data.:
-        ----------------------------------------''',
-
-    "user_message_template3": \
-        '''----------------------------------------
-        What is the output grid? Only provide the output grid in the form as in the example input and output pairs. Do not provide any additional information:''',
-
-    "user_message_template4": \
-        '''----------------------------------------
-        Considering the examples, the test input, and potentially the predicted output grid provided below, please describe the transformation rule you observed in a single, concise English sentence.
-        Rule: '''
+color_map = {
+    0: "black",
+    1: "red",
+    2: "green",
+    3: "yellow",
+    4: "blue",
+    5: "magenta",
+    6: "cyan",
+    7: "white",
+    8: "bright_red",
+    9: "bright_green",
 }
 
-def load_data_from_a_task(
-        all_examples,
-        num_examples,
-        num_test,
-):
-    datapoints = []
-    window_size = num_examples + 1
+console = Console()
 
-    shuffled_examples = list(all_examples)
-    random.shuffle(shuffled_examples)
+def make_rich_lines(grid: List[List[int]]) -> List[Text]:
+    lines = []
+    for row in grid:
+        visual = Text()
+        for cell in row:
+            color = color_map.get(cell, "white")
+            visual.append("  ", style=f"on {color}")
+        raw = Text("  " + str(row))
+        visual.append(raw)
+        lines.append(visual)
+    return lines
 
-    if len(shuffled_examples) < window_size:
-        return []
+def render_grid(grid: List[List[int]]):
+    lines = make_rich_lines(grid)
+    for line in lines:
+        console.print(line)
 
-    data_iter = (
-        shuffled_examples[i * window_size : (i+1) * window_size]
-        for i in range(len(shuffled_examples) // window_size)
-    )
+def get_base_model(model_name):
+    available_models = [
+        "meta-llama/Llama-3.2-1B",
+    ]
+    assert model_name in available_models, f"{model_name} is not available."
 
-    for cnt, window in enumerate(data_iter):
-        if cnt >= num_test:
-            break
-
-        train_part = window[:num_examples]
-        test_part = window[num_examples]
-
-        datapoint = {
-            'examples': train_part,
-            'test': test_part,
-        }
-
-
-    return None

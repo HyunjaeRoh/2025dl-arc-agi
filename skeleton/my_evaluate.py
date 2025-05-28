@@ -10,36 +10,14 @@ from rich import print as rich_print
 from datasets import Dataset
 from evaluate import load_data as __load_data
 
+
 def load_data_selective(base_dir, task_list, window, rng, max_len=1000):
-    """
-    지정된 인덱스 목록의 ARC 작업 파일들에서 데이터를 로드하고,
-    'window' 크기에 맞춰 훈련/테스트 세트를 샘플링합니다.
-
-    Args:
-        base_dir (str): 작업 파일이 포함된 디렉토리의 경로입니다.
-        task_list (list): 로드할 작업 파일의 인덱스 목록 (정렬된 파일 이름 기준).
-        window (int): 샘플링할 총 예제 수 (훈련 예제 수 + 1 테스트 예제).
-                      훈련 예제 수는 window - 1이 됩니다.
-        rng (numpy.random.Generator): 샘플링에 사용할 NumPy RNG 객체입니다.
-        max_len (int, optional): 생성할 최대 데이터 포인트 수. 기본값은 1000입니다.
-
-    Returns:
-        pd.DataFrame: 로드되고 샘플링된 데이터가 포함된 DataFrame입니다.
-                      선택된 작업이 없으면 빈 DataFrame을 반환합니다.
-    """
-    # 1. dataset 폴더의 전체 파일 이름 읽기
-    try:
-        all_filenames = os.listdir(base_dir)
-    except FileNotFoundError:
-        print(f"오류: 디렉토리를 찾을 수 없습니다 - {base_dir}")
-        return pd.DataFrame()
+    all_filenames = os.listdir(base_dir)
 
     json_filenames = [f for f in all_filenames if f.endswith(".json")]
 
-    # 2. 파일 이름순서로 분류
     json_filenames.sort()
 
-    # 3. task_list로 정해진 task에서만 데이터 추출
     selected_filenames = []
     for i, filename in enumerate(json_filenames):
         if i in task_list:
@@ -124,9 +102,10 @@ def load_data_selective(base_dir, task_list, window, rng, max_len=1000):
 
 def main():
     token = os.environ.get("HF_TOKEN", None)
-    from arc.arc2 import ARCSolver2
+    from arc.arc import ARCSolver
 
-    solver = ARCSolver2(token=token, is_training=False)
+    solver = ARCSolver(token=token, is_training=False)
+    #solver.prepare_evaluation(adapter_path="artifacts/arc_solver_finetuned_from_script/checkpoint-final")
     solver.prepare_evaluation()
 
     set_seed(1234567890)
@@ -137,10 +116,12 @@ def main():
 
     task_list = [1]
 
-    #df = load_data_selective(data_path, task_list, window=100, rng=rng, max_len=10)
-    df = __load_data(data_path)
+    df = load_data_selective(data_path, [0], window=3, rng=rng, max_len=10)
+    #df = __load_data(data_path)
 
-    #eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
+
+
+    eval_dataset = Dataset.from_pandas(df).select(range(N_data))
     eval_dataset = Dataset.from_pandas(df).shuffle(42).select(range(N_data))
 
     #eval_dataset =
@@ -155,27 +136,25 @@ def main():
 
         if train_examples:
             rich_print(f"[bold magenta]Train Examples ({len(train_examples)} pairs):[/bold magenta]")
-            for idx, train_ex in enumerate(train_examples[:10]):
+            for idx, train_ex in enumerate(train_examples[:3]):
                 rich_print(f"[bold magenta]Train Example {idx} (Input):[/bold magenta]")
                 render_grid(train_ex['input'])
                 rich_print(f"[bold magenta]Train Example {idx} (Output):[/bold magenta]")
                 render_grid(train_ex['output'])
-                if idx < len(train_examples) - 1:  # 마지막 예제가 아니면 구분선 추가
+                if idx == len(train_examples) - 1:  # 마지막 예제가 아니면 구분선 추가
                     rich_print("-" * 30)
         render_grid(test_input_grid)
 
         # 모델 예측
-        predicted_output_grid = solver.predict(
+        predicted_output_grid, rule, flags, total_outputs = solver.predict(
             train_examples,
             test_input_grid,
+            get_details=True,
         ) ##
 
-        predicted_rule = solver.predict(
-            train_examples,
-            test_input_grid,
-            result_type='rule'
-        )
-        rich_print(f"@@ predicted_rule: {predicted_rule} @@@")
+        rich_print(f"@@ flags: {flags}")
+        print(f"@@ predicted_rule: {rule} @@@")
+        print(f"@@ total_outputs: {total_outputs}")
 
         rich_print("[bold green]Predicted Output:[/bold green]")
         render_grid(predicted_output_grid)
