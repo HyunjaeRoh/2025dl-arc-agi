@@ -14,7 +14,7 @@ from transformers import BitsAndBytesConfig, AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 from transformers import TrainingArguments
 from trl import SFTTrainer
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
 
 import os
 import json
@@ -50,6 +50,7 @@ class ARCSolver:
             trust_remote_code=True,  # Allow the model to use custom code from the repository
             quantization_config=bnb_config,  # Apply the 4-bit quantization configuration
             attn_implementation='sdpa',  # Use scaled-dot product attention for better performance
+            #attn_implementation='flash_attention_2',
             torch_dtype=torch.float16,  # Set the data type for the model
             use_cache=use_cache,  # at training, disable caching to save memory
             device_map='auto',  # Automatically map the model to available devices (e.g., GPUs)
@@ -87,7 +88,7 @@ class ARCSolver:
             print("Warning: Could not find reserved special token. Using space ' ' as placeholder.")
             self.placeholder_token_id = self.tokenizer.encode(" ", add_special_tokens=False)[0]
 
-        self.placeholder_length = 150  # 플레이스홀더 길이 설정 (예: 75 토큰)
+        self.placeholder_length = 50  # 플레이스홀더 길이 설정 (예: 75 토큰)
         self.space_id = self.tokenizer.encode(" ", add_special_tokens=False)[0]  # 공백 토큰
         self.newline_id = self.separator  # '\n' 토큰 ID
 
@@ -188,12 +189,17 @@ class ARCSolver:
                 '''----------------------------------------
                 Considering the examples, please describe the transformation rule you observed in a single, concise English sentence. Think step by step.''',
 
+            "user_message_template6": \
+                '''----------------------------------------
+                Think step by step. Provide the output grid enclosed in [[GRID]] and [[/GRID]] markers.
+                Example: [[GRID]]000\n000\n000\n[[/GRID]] Do not provide any other information:''',
+
             "user_message_template5": \
                 '''----------------------------------------
                 Think step by step. First, describe the transformation rule you observed in a single, concise English sentence, enclosed in [[RULE]] and [[/RULE]] markers.
                 Then, provide the output grid enclosed in [[GRID]] and [[/GRID]] markers.
                 Example: [[RULE]]The rule is ... ... [[/RULE]] [[GRID]]000\n000\n000\n[[/GRID]]
-                Do not provide any other information:'''
+                Do not provide any other information:''',
 
         }
 
@@ -269,7 +275,6 @@ class ARCSolver:
             target_ids += self.rule_end_ids
             target_ids += [self.space_id]  # 마커 사이 공백
             target_ids += self.grid_start_ids
-            target_ids += [self.newline_id]  # 그리드 시작 전 줄바꿈
             target_ids += grid_content_ids  # 그리드 내용 (줄바꿈 포함)
             target_ids += self.grid_end_ids
             target_ids += [self.eot_id]  # 문장 종료
@@ -283,7 +288,6 @@ class ARCSolver:
             labels += self.rule_end_ids  # [[/RULE]] 학습
             labels += [-100]  # 공백 마스킹
             labels += self.grid_start_ids  # [[GRID]] 학습
-            labels += [self.newline_id]  # 줄바꿈 학습
             labels += grid_content_ids  # 그리드 내용 학습
             labels += self.grid_end_ids  # [[/GRID]] 학습
             labels += [self.eot_id]  # EOT 학습
@@ -336,7 +340,7 @@ class ARCSolver:
         input_ids = torch.tensor(prompt["input_ids"], dtype=torch.long).to(self.device).view(1, -1)
 
         config = GenerationConfig(
-            num_beams=8,
+            num_beams=4,
             # num_return_sequences=1,
             do_sample=False,
             pad_token_id=self.tokenizer.eos_token_id,
@@ -437,7 +441,7 @@ class ARCSolver:
                 }
                 all_train_datapoints.append(datapoint)
 
-            for i in range(0, len(task_eval) - window_size + 1):
+            for i in range(0, len(task_eval) - 4 + 1):
                 window = task_eval[i: i + window_size]
                 train_examples = window[:-1]
                 test_example = window[-1]
@@ -460,32 +464,51 @@ class ARCSolver:
         window_size = 4
         shuffle_task = True
         epochs = 10
+        load_dataset_from_disk = False
 
-        print("--- Step 1: Preparing Data ---")
-        all_train_datapoints, all_eval_datapoints = self._prepare_training_data(
-            training_data_path=training_data_path,
-            task_indices=task_indices,
-            window_size=window_size,
-            shuffle=shuffle_task
-        )
+        sft_train_dataset_path = "./artifacts/arc_sft_dataset/train_dataset"
+        eval_datapoints_file = "./artifacts/arc_sft_dataset/eval_datapoints.json"
+        if load_dataset_from_disk:
+            rich_print(f"[bold green]Loading pre-processed training dataset from {sft_train_dataset_path}...[/bold green]")
+            train_dataset = load_from_disk(sft_train_dataset_path)
+            with open(eval_datapoints_file, 'r', encoding='utf-8') as f:
+                all_eval_datapoints = json.load(f)
+            rich_print("[bold green]Datasets loaded.[/bold green]")
 
-        print("--- Step 2: Transforming Data for SFT ---")
-        sft_train_list = []
-        for datapoint in tqdm(all_train_datapoints, desc="Formatting Datapoints"):
-            prompt = self.format_prompt(datapoint, is_training=True)
-            sft_train_list.append({
-                "input_ids": prompt["input_ids"],
-                "labels": prompt["labels"],
-            })
+        else:
+            print("--- Step 1: Preparing Data ---")
+            all_train_datapoints, all_eval_datapoints = self._prepare_training_data(
+                training_data_path=training_data_path,
+                task_indices=task_indices,
+                window_size=window_size,
+                shuffle=shuffle_task
+            )
 
-        print("--- Step 3: Creating Dataset ---")
-        train_dataset = Dataset.from_list(sft_train_list)
+            print("--- Step 2: Transforming Data for SFT ---")
+            sft_train_list = []
+            for datapoint in tqdm(all_train_datapoints, desc="Formatting Datapoints"):
+                prompt = self.format_prompt(datapoint, is_training=True)
+                sft_train_list.append({
+                    "input_ids": prompt["input_ids"],
+                    "labels": prompt["labels"],
+                })
+
+            print("--- Step 3: Creating Dataset ---")
+            train_dataset = Dataset.from_list(sft_train_list)
+
+            rich_print(f"[bold blue]Saving dataset to {sft_train_dataset_path}...[/bold blue]")
+            os.makedirs(os.path.dirname(sft_train_dataset_path), exist_ok=True)
+            train_dataset.save_to_disk(sft_train_dataset_path)
+            with open(eval_datapoints_file, 'w', encoding='utf-8') as f:
+                json.dump(all_eval_datapoints, f, indent=4)  # indent로 가독성 높임
+            rich_print("[bold blue]Datasets saved.[/bold blue]")
 
         print("--- Step 4: Setting up PEFT/LoRA ---")
         peft_config = LoraConfig(
             r=16, lora_alpha=32, lora_dropout=0.05, bias="none",
             task_type=TaskType.CAUSAL_LM,
-            target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            #target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            target_modules=["q_proj", "v_proj"],
         )
         self.model = prepare_model_for_kbit_training(self.model, use_gradient_checkpointing=True)
         self.model = get_peft_model(self.model, peft_config)
@@ -494,8 +517,8 @@ class ARCSolver:
         print("--- Step 5: Setting up Training Arguments ---")
         training_args = TrainingArguments(
             output_dir=output_dir,
-            per_device_train_batch_size=1,
-            gradient_accumulation_steps=8,
+            per_device_train_batch_size=16,
+            gradient_accumulation_steps=32,
             learning_rate=1e-4,
             num_train_epochs=1,  # <-- 외부 루프에서 에폭을 제어하므로 1로 설정!
             lr_scheduler_type="cosine",
@@ -503,6 +526,7 @@ class ARCSolver:
             logging_dir=f"{output_dir}/logs",
             logging_steps=10,  # 로깅 주기 단축
             optim="paged_adamw_8bit",
+            #optim="adamw_torch",
             gradient_checkpointing=True,
             fp16=True,  # 또는 bf16 설정
             report_to="none",
