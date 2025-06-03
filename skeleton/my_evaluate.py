@@ -105,8 +105,8 @@ def main():
     from arc.arc import ARCSolver
 
     solver = ARCSolver(token=token, is_training=False)
-    #solver.prepare_evaluation(adapter_path="artifacts/arc_solver_finetuned_from_script/checkpoint-final")
-    solver.prepare_evaluation()
+    solver.prepare_evaluation(adapter_path="artifacts/arc_solver_finetuned_from_script/checkpoint-epoch-1")
+    #solver.prepare_evaluation()
 
     set_seed(1234567890)
     rng = np.random.default_rng(42)
@@ -116,8 +116,8 @@ def main():
 
     task_list = [1]
 
-    df = load_data_selective(data_path, [0], window=3, rng=rng, max_len=10)
-    #df = __load_data(data_path)
+    #df = load_data_selective(data_path, [0], window=3, rng=rng, max_len=10)
+    df = __load_data(data_path)
 
 
 

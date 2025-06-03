@@ -4,4 +4,5 @@
 /.idea/
 /skeleton/__pycache__/
 /skeleton/arc/__pycache__/
-/skeleton/artifacts/
+/skeleton/venv
+/skeleton/artifacts

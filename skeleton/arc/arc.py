@@ -2,7 +2,7 @@ import random
 
 from transformers import GenerationConfig
 import torch
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import numpy as np
 import re
 import traceback
@@ -12,8 +12,8 @@ from utils import render_grid
 from transformers import BitsAndBytesConfig, AutoModelForCausalLM, AutoTokenizer
 
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
-from transformers import TrainingArguments
-from trl import SFTTrainer
+from transformers import TrainingArguments, default_data_collator, DataCollatorWithPadding
+from trl import SFTTrainer, SFTConfig
 from datasets import Dataset, load_from_disk
 
 import os
@@ -49,8 +49,8 @@ class ARCSolver:
             model_id,
             trust_remote_code=True,  # Allow the model to use custom code from the repository
             quantization_config=bnb_config,  # Apply the 4-bit quantization configuration
-            #attn_implementation='sdpa',  # Use scaled-dot product attention for better performance
-            attn_implementation='flash_attention_2',
+            attn_implementation='sdpa',  # Use scaled-dot product attention for better performance
+            #attn_implementation='flash_attention_2',
             torch_dtype=torch.float16,  # Set the data type for the model
             use_cache=use_cache,  # at training, disable caching to save memory
             device_map='auto',  # Automatically map the model to available devices (e.g., GPUs)
@@ -196,9 +196,9 @@ class ARCSolver:
 
             "user_message_template5": \
                 '''----------------------------------------
-                Think step by step. First, describe the transformation rule you observed in a single, concise English sentence, enclosed in [[RULE]] and [[/RULE]] markers.
-                Then, provide the output grid enclosed in [[GRID]] and [[/GRID]] markers.
-                Example: [[RULE]]The rule is ... ... [[/RULE]] [[GRID]]000\n000\n000\n[[/GRID]]
+                Think step by step. First, provide the output grid enclosed in [[GRID]] and [[/GRID]] markers.
+                Then, describe the transformation rule you observed in concise English sentence, enclosed in [[RULE]] and [[/RULE]] markers.
+                Example: [[GRID]]000\n000\n000\n[[/GRID]] [[RULE]]The rule is ... ... [[/RULE]] 
                 Do not provide any other information:''',
 
         }
@@ -270,26 +270,26 @@ class ARCSolver:
             grid_content_ids = self.format_grid(test_output_grid)
 
             target_ids = []
-            target_ids += self.rule_start_ids
-            target_ids += placeholder_ids
-            target_ids += self.rule_end_ids
-            target_ids += [self.space_id]  # 마커 사이 공백
             target_ids += self.grid_start_ids
             target_ids += grid_content_ids  # 그리드 내용 (줄바꿈 포함)
             target_ids += self.grid_end_ids
+            target_ids += [self.space_id]  # 마커 사이 공백
+            target_ids += self.rule_start_ids
+            target_ids += placeholder_ids
+            target_ids += self.rule_end_ids
             target_ids += [self.eot_id]  # 문장 종료
 
             input_ids = messages + target_ids
 
             labels = []
             labels += [-100] * len(messages)  # 프롬프트 마스킹
-            labels += self.rule_start_ids  # [[RULE]] 학습
-            labels += [-100] * self.placeholder_length  # 플레이스홀더 마스킹
-            labels += self.rule_end_ids  # [[/RULE]] 학습
-            labels += [-100]  # 공백 마스킹
             labels += self.grid_start_ids  # [[GRID]] 학습
             labels += grid_content_ids  # 그리드 내용 학습
             labels += self.grid_end_ids  # [[/GRID]] 학습
+            labels += [-100]  # 공백 마스킹
+            labels += self.rule_start_ids  # [[RULE]] 학습
+            labels += [-100] * self.placeholder_length  # 플레이스홀더 마스킹
+            labels += self.rule_end_ids  # [[/RULE]] 학습
             labels += [self.eot_id]  # EOT 학습
 
             # 결과 딕셔너리에 추가
@@ -403,12 +403,16 @@ class ARCSolver:
                 total_outputs = self.tokenizer.decode(output_tokens, skip_special_tokens=True)
                 return grid, rule_explanation, flags, total_outputs
 
-    def _prepare_training_data(self, training_data_path: str, task_indices=(0, 300), eval_ratio=0.1, window_size=4,
-                               shuffle=True):
+    def _prepare_training_data(self, training_data_path: str, task_indices: Optional[List[int]], num_samples_per_task=30, num_samples_for_eval=3, window_size=4, shuffle=True):
         """Loads and processes data, splitting into train/eval sets."""
         all_task_files = [f for f in os.listdir(training_data_path) if f.endswith('.json')]
         all_task_files.sort()
-        selected_files = all_task_files[task_indices[0]:task_indices[1]]
+        if task_indices is None:
+            selected_files = all_task_files
+        else:
+            selected_files = []
+            for i in task_indices:
+                selected_files.append(all_task_files[i])
 
         all_train_datapoints = []
         all_eval_datapoints = []
@@ -420,37 +424,30 @@ class ARCSolver:
             with open(task_path, "r") as f:
                 all_examples = json.load(f)
 
-            if len(all_examples) < window_size:
-                print(f"Skipping {task_file}: Not enough examples ({len(all_examples)}) for window size {window_size}")
-                continue
-            print(f"Processing {task_file}...")
+            if len(all_examples) < (num_samples_for_eval + num_samples_per_task) * window_size:
+                print(f"Skipping {task_file}: Not enough examples ({len(all_examples)}) for window size {window_size}, num_samples_for_eval {num_samples_for_eval}, num_samples_per_task {num_samples_per_task}")
 
-            split_idx = max(1, len(all_examples) - max(1, int(len(all_examples) * eval_ratio)))
-            task_train = all_examples[:split_idx]
-            task_eval = all_examples[split_idx:]
+            eval_candidates = all_examples[:num_samples_for_eval * window_size]
+            train_candidates = all_examples[num_samples_for_eval * window_size:]
 
-            for i in range(0, len(task_train) - window_size + 1):
-                window = task_train[i: i + window_size]
-                train_examples = window[:-1]
-                test_example = window[-1]
-
+            for i in range(0, num_samples_for_eval * window_size, window_size):
+                window = eval_candidates[i:i + window_size]
                 datapoint = {
-                    "train": train_examples,
-                    "test": [test_example],
-                    "task_file": task_file
+                    "train": window[:-1],
+                    "test": [window[-1]],
+                    "task_file": task_file,
+                }
+                all_eval_datapoints.append(datapoint)
+
+            for i in range(0, num_samples_per_task * window_size, window_size):
+                sampled_examples = random.sample(train_candidates, window_size)
+                datapoint = {
+                    "train": sampled_examples[:-1],
+                    "test": [sampled_examples[-1]],
+                    "task_file": task_file,
                 }
                 all_train_datapoints.append(datapoint)
 
-            for i in range(0, len(task_eval) - 4 + 1):
-                window = task_eval[i: i + window_size]
-                train_examples = window[:-1]
-                test_example = window[-1]
-                datapoint = {
-                    "train": train_examples,
-                    "test": [test_example],
-                    "task_file": task_file
-                }
-                all_eval_datapoints.append(datapoint)
 
         print(f"Prepared {len(all_train_datapoints)} training samples and {len(all_eval_datapoints)} evaluation samples.")
         if shuffle:
@@ -460,88 +457,69 @@ class ARCSolver:
 
     def train(self, training_data_path="/workspace/dataset", output_dir: str = "artifacts/arc_solver_finetuned"):
 
-        task_indices = (0, 300)
+        task_indices = None
+        num_samples_per_task = 10
+        num_examples_for_eval = 3
         window_size = 4
         shuffle_task = True
-        epochs = 10
-        load_dataset_from_disk = False
+        epochs = 6
 
-        sft_train_dataset_path = "./artifacts/arc_sft_dataset/train_dataset"
-        eval_datapoints_file = "./artifacts/arc_sft_dataset/eval_datapoints.json"
-        if load_dataset_from_disk:
-            rich_print(f"[bold green]Loading pre-processed training dataset from {sft_train_dataset_path}...[/bold green]")
-            train_dataset = load_from_disk(sft_train_dataset_path)
-            with open(eval_datapoints_file, 'r', encoding='utf-8') as f:
-                all_eval_datapoints = json.load(f)
-            rich_print("[bold green]Datasets loaded.[/bold green]")
+        print("--- Step 1: Preparing Data ---")
+        all_train_datapoints, all_eval_datapoints = self._prepare_training_data(
+            training_data_path=training_data_path,
+            task_indices=task_indices,
+            num_samples_per_task=num_samples_per_task,
+            window_size=window_size,
+            shuffle=shuffle_task
+        )
 
-        else:
-            print("--- Step 1: Preparing Data ---")
-            all_train_datapoints, all_eval_datapoints = self._prepare_training_data(
-                training_data_path=training_data_path,
-                task_indices=task_indices,
-                window_size=window_size,
-                shuffle=shuffle_task
-            )
+        print("--- Step 2: Transforming Data for SFT ---")
+        sft_train_list = []
+        for datapoint in tqdm(all_train_datapoints, desc="Formatting Datapoints"):
+            prompt = self.format_prompt(datapoint, is_training=True)
+            sft_train_list.append({
+                "input_ids": prompt["input_ids"],
+                "labels": prompt["labels"],
+            })
 
-            print("--- Step 2: Transforming Data for SFT ---")
-            sft_train_list = []
-            for datapoint in tqdm(all_train_datapoints, desc="Formatting Datapoints"):
-                prompt = self.format_prompt(datapoint, is_training=True)
-                sft_train_list.append({
-                    "input_ids": prompt["input_ids"],
-                    "labels": prompt["labels"],
-                })
-
-            print("--- Step 3: Creating Dataset ---")
-            train_dataset = Dataset.from_list(sft_train_list)
-
-            rich_print(f"[bold blue]Saving dataset to {sft_train_dataset_path}...[/bold blue]")
-            os.makedirs(os.path.dirname(sft_train_dataset_path), exist_ok=True)
-            train_dataset.save_to_disk(sft_train_dataset_path)
-            with open(eval_datapoints_file, 'w', encoding='utf-8') as f:
-                json.dump(all_eval_datapoints, f, indent=4)  # indent로 가독성 높임
-            rich_print("[bold blue]Datasets saved.[/bold blue]")
+        print("--- Step 3: Creating Dataset ---")
+        train_dataset = Dataset.from_list(sft_train_list)
 
         print("--- Step 4: Setting up PEFT/LoRA ---")
         peft_config = LoraConfig(
             r=16, lora_alpha=32, lora_dropout=0.05, bias="none",
             task_type=TaskType.CAUSAL_LM,
-            #target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-            target_modules=["q_proj", "v_proj"],
+            target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
         self.model = prepare_model_for_kbit_training(self.model, use_gradient_checkpointing=True)
         self.model = get_peft_model(self.model, peft_config)
         self.model.print_trainable_parameters()
 
         print("--- Step 5: Setting up Training Arguments ---")
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            per_device_train_batch_size=16,
-            gradient_accumulation_steps=32,
-            learning_rate=1e-4,
-            num_train_epochs=1,  # <-- 외부 루프에서 에폭을 제어하므로 1로 설정!
-            lr_scheduler_type="cosine",
-            save_strategy="no",  # <-- 수동으로 저장하므로 "no"로 설정!
+        sft_config = SFTConfig(
+            max_length=1400,
+            output_dir=f"{output_dir}",
+            per_device_train_batch_size=1, # 4
+            gradient_accumulation_steps=32, # 16
+            learning_rate=2e-5,
+            num_train_epochs=1,
+            logging_steps=10,
             logging_dir=f"{output_dir}/logs",
-            logging_steps=10,  # 로깅 주기 단축
             optim="paged_adamw_8bit",
-            #optim="adamw_torch",
-            gradient_checkpointing=True,
-            fp16=True,  # 또는 bf16 설정
-            report_to="none",
-            label_names=["labels"],
+            fp16=True,
+            dataloader_num_workers=12, # 12
+            dataloader_pin_memory=False,
         )
 
         print("--- Step 6: Initializing SFTTrainer ---")
         trainer = SFTTrainer(
             model=self.model,
-            #tokenizer=self.tokenizer,
-            args=training_args,
+            args=sft_config,
             train_dataset=train_dataset,
             peft_config=peft_config,
-            #max_seq_length=2048,
         )
+
+
 
         print("--- Step 7: Starting Training & Evaluation Loop ---")
         for epoch in range(int(epochs)):
@@ -564,7 +542,7 @@ class ARCSolver:
                 print(f"Evaluating after Epoch {epoch + 1}...")
                 # evaluate 메서드는 이제 datapoint 리스트를 처리할 수 있어야 합니다.
                 # (이전 답변에서 수정된 evaluate 메서드 사용)
-                self.evaluate(all_eval_datapoints[:3])
+                self.evaluate(all_eval_datapoints)
 
         print("\n--- Step 8: Saving Final Model ---")
         final_adapter_path = os.path.join(output_dir, "checkpoint-final")

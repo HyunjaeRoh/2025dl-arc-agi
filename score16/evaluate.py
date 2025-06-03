@@ -67,13 +67,13 @@ def main():
     from arc import ARCSolver
 
     solver = ARCSolver(token=token)
-    solver.prepare_evaluation("artifacts/checkpoint-final")
+    solver.prepare_evaluation()
 
     set_seed(1234567890)
 
     #@@@ data_path = "/workspace/dataset"
     data_path = "../dataset" # @@@@
-    N_data = 10
+    N_data = 100
 
     scores = []
     df = load_data(data_path)

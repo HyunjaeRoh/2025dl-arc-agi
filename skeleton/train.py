@@ -24,12 +24,8 @@ def main():
 
     token = os.environ.get("HF_TOKEN", None)
 
-    print(f"Initializing ARCSolver with token: {'Provided' if token else 'Not provided'}")
-    try:
-        solver = ARCSolver(token=token, is_training=True)
-    except Exception as e:
-        print(f"Error initializing ARCSolver: {e}")
-        sys.exit(1)
+
+    solver = ARCSolver(token=token, is_training=True)
 
     print(f"Starting training with data from: {args.train_data_path}")
     print(f"Output will be saved to: {args.output_dir}")
