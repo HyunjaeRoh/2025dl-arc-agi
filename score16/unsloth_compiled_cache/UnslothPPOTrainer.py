@@ -1,8 +1,8 @@
 """
-2025.5.11
-2025.5.9
-4.52.4
-0.17.0
+2025.5.8
+2025.5.7
+4.51.3
+0.15.2
 __UNSLOTH_VERSIONING__
 """
 from torch import Tensor
@@ -20,7 +20,7 @@ import torch
 import numpy as np
 from contextlib import nullcontext
 from torch.nn import functional as F
-from transformers import DataCollatorForSeq2Seq, DataCollatorForLanguageModeling as TransformersDataCollatorForLanguageModeling
+from transformers import DataCollatorForSeq2Seq, DataCollatorForLanguageModeling
 
 torch_compile_options = {
     "epilogue_fusion"   : True,
@@ -64,11 +64,6 @@ class UnslothPPOConfig(PPOConfig):
             Whether to whiten the rewards.
         kl_coef (`float`, *optional*, defaults to `0.05`):
             KL coefficient.
-        kl_estimator (`Literal["k1", "k3"]`, *optional*, defaults to `"k1"`):
-            Which estimator for KL-Divergence to use from [Approximating KL Divergence](http://joschu.net/blog/kl-approx.html).
-            Defaults to "k1", a straightforward, unbiased estimator. Can be set to "k3", an unbiased estimator with
-            lower variance which "appears to be a strictly better estimator". Cannot be set to "k2", as it is used for
-            logging purposes.
         cliprange (`float`, *optional*, defaults to `0.2`):
             Clip range.
         vf_coef (`float`, *optional*, defaults to `0.1`):
@@ -171,6 +166,7 @@ class UnslothPPOConfig(PPOConfig):
         fsdp = '',
         fsdp_min_num_params = 0,
         fsdp_config = None,
+        tp_size = 0,
         fsdp_transformer_layer_cls_to_wrap = None,
         accelerator_config = None,
         deepspeed = None,
@@ -246,7 +242,6 @@ class UnslothPPOConfig(PPOConfig):
         num_ppo_epochs = 4,
         whiten_rewards = False,
         kl_coef = 0.05,
-        kl_estimator = 'k1',
         cliprange = 0.2,
         vf_coef = 0.1,
         cliprange_value = 0.2,
@@ -343,6 +338,7 @@ class UnslothPPOConfig(PPOConfig):
             fsdp = fsdp,
             fsdp_min_num_params = fsdp_min_num_params,
             fsdp_config = fsdp_config,
+            tp_size = tp_size,
             fsdp_transformer_layer_cls_to_wrap = fsdp_transformer_layer_cls_to_wrap,
             accelerator_config = accelerator_config,
             deepspeed = deepspeed,
@@ -418,7 +414,6 @@ class UnslothPPOConfig(PPOConfig):
             num_ppo_epochs = num_ppo_epochs,
             whiten_rewards = whiten_rewards,
             kl_coef = kl_coef,
-            kl_estimator = kl_estimator,
             cliprange = cliprange,
             vf_coef = vf_coef,
             cliprange_value = cliprange_value,
@@ -477,14 +472,6 @@ class _UnslothPPOTrainer(Trainer):
         else:
             self.policy_model.generation_config.eos_token_id = self.stop_token_id = args.stop_token_id  # None or int
 
-        # Check that the kl estimator is valid
-        if self.args.kl_estimator not in {"k1", "k3"}:
-            raise ValueError(
-                "kl_estimator must be either 'k1' (straightforward, unbiased) or 'k3' (lower variance, unbiased, "
-                "appears to be a strictly better estimator). See "
-                "[Approximating KL Divergence](http://joschu.net/blog/kl-approx.html) for details."
-            )
-
         # peft support
         if not is_peft_available() and peft_config is not None:
             raise ImportError(
@@ -528,7 +515,9 @@ class _UnslothPPOTrainer(Trainer):
         accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps)
         self.accelerator = accelerator
         args.world_size = accelerator.num_processes
-        args.local_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps
+        args.local_batch_size = (
+            args.per_device_train_batch_size * args.gradient_accumulation_steps * args.num_mini_batches
+        )
         args.micro_batch_size = int(args.per_device_train_batch_size * args.world_size)
         args.batch_size = int(args.local_batch_size * args.world_size)
         args.mini_batch_size = exact_div(
@@ -538,9 +527,9 @@ class _UnslothPPOTrainer(Trainer):
             args.local_batch_size, args.num_mini_batches, "`local_batch_size` must be a multiple of `num_mini_batches`"
         )
         if args.whiten_rewards:
-            assert args.local_mini_batch_size >= 8, (
-                f"Per-rank minibatch size {args.local_mini_batch_size} is insufficient for whitening"
-            )
+            assert (
+                args.local_mini_batch_size >= 8
+            ), f"Per-rank minibatch size {args.local_mini_batch_size} is insufficient for whitening"
         # `per_rank_rollout_batch_size` is our `args.local_batch_size`
         # `per_rank_minibatch_size` is our `args.local_mini_batch_size`
         args.num_total_batches = math.ceil(
@@ -716,7 +705,7 @@ class _UnslothPPOTrainer(Trainer):
         # trainer state initialization
         self.state.global_step = 0
         self.state.episode = 0
-        self.state.max_steps = args.num_total_batches
+        self.state.max_steps = args.num_total_batches * args.num_mini_batches
         self.state.num_train_epochs = args.total_episodes / self.train_dataset_len
         # Compute absolute values for logging, eval, and save if given as ratio
         if args.logging_steps is not None:
@@ -839,9 +828,7 @@ class _UnslothPPOTrainer(Trainer):
                 values = torch.masked_fill(values, padding_mask_p1, 0)
 
                 # 4. compute rewards
-                # Formula used by http://joschu.net/blog/kl-approx.html for the k1 and k3 estimators
-                logr = ref_logprobs - logprobs
-                kl = -logr if args.kl_estimator == "k1" else (logr.exp() - 1) - logr  # Else statement is k3
+                kl = logprobs - ref_logprobs
                 non_score_reward = -args.kl_coef * kl
                 rewards = non_score_reward.clone()
                 actual_start = torch.arange(rewards.size(0), device=rewards.device)
@@ -1226,8 +1213,8 @@ class UnslothPPOTrainer(_UnslothPPOTrainer):
         from unsloth_zoo.vision_utils import UnslothVisionDataCollator
         if not isinstance(data_collator, UnslothVisionDataCollator):
             if isinstance(data_collator, DataCollatorForSeq2Seq) and 'labels' not in train_dataset.column_names:
-                data_collator = TransformersDataCollatorForLanguageModeling(__tokenizer, mlm = False, mlm_probability = 0.0)
-            elif isinstance(data_collator, TransformersDataCollatorForLanguageModeling) and 'labels' in train_dataset.column_names:
+                data_collator = DataCollatorForLanguageModeling(__tokenizer, mlm = False)
+            elif isinstance(data_collator, DataCollatorForLanguageModeling) and 'labels' in train_dataset.column_names:
                 data_collator = DataCollatorForSeq2Seq(__tokenizer)
         else:
             if hasattr(args, 'remove_unused_columns'): args.remove_unused_columns = False
@@ -1238,7 +1225,7 @@ class UnslothPPOTrainer(_UnslothPPOTrainer):
                 if isinstance(data_collator, DataCollatorForSeq2Seq):
                     data_collator = DataCollatorForSeq2Seq(__tokenizer.tokenizer)
                 else:
-                    data_collator = TransformersDataCollatorForLanguageModeling(__tokenizer.tokenizer, mlm = False, mlm_probability = 0.0)
+                    data_collator = DataCollatorForLanguageModeling(__tokenizer.tokenizer, mlm = False)
         other_metrics = []
         
         from unsloth_zoo.logging_utils import PatchRLStatistics
