@@ -1,0 +1,58 @@
+{
+  "add_bos_token": true,
+  "added_tokens_decoder": {
+    "74": {
+      "content": "<|begin_of_text|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "75": {
+      "content": "<|end_of_text|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "76": {
+      "content": "<|finetune_right_pad_id|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "77": {
+      "content": "<|eom_id|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "78": {
+      "content": "<|eot_id|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    }
+  },
+  "bos_token": "<|begin_of_text|>",
+  "clean_up_tokenization_spaces": true,
+  "eos_token": "<|eot_id|>",
+  "extra_special_tokens": {},
+  "model_input_names": [
+    "input_ids",
+    "attention_mask"
+  ],
+  "model_max_length": 131072,
+  "pad_token": "<|finetune_right_pad_id|>",
+  "padding_side": "right",
+  "tokenizer_class": "PreTrainedTokenizer",
+  "unk_token": null
+}
