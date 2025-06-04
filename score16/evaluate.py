@@ -73,7 +73,7 @@ def main():
 
     #@@@ data_path = "/workspace/dataset"
     data_path = "../dataset" # @@@@
-    N_data = 100
+    N_data = 10
 
     scores = []
     df = load_data(data_path)
